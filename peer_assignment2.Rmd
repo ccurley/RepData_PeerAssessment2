@@ -1,0 +1,293 @@
+---
+title: "NOAA Weather Data Health and Economic Impact"
+author: "Christopher Curley"
+date: "January 29, 2016"
+output: 
+        html_document:
+                fig_caption: yes
+---
+
+### SYNOPSYS
+The research assignment addresses to question: 
+
+1. Across the United States, which types of events are the most harmful with respect to population health
+1. Across the United States, which types of events have the greatest economic consequences
+
+The study finds that HURRICANEs are, on average, the most signficant weather events impacting population health and economic costs. To arrive at this conclusion, approximately nine hundred thousand observed weather events spanning over nine hundred EVTYPES need to be reclassified and grouped according to some rational schema. Also, the data stores economic impacts to property and crops in a duple (PRODMG / PRODMGEXP and CROPDMG and CROPDMGEXP) -- this duple needs to be consolidated into a single data observation for data analysis.
+
+While cumulative results vary the EVTYPE of the most significant weather events, *on average* hurricanes are the most impactful weather events on human health and economic costs.
+
+## DATA PROCESSING
+
+### Measured Data
+
+#### Technical Data
+This file was knitted on (Note: Remote data may be cached):
+```{r runDate}
+Sys.Date()
+```
+
+Session Data:
+```{r runSession}
+sessionInfo()
+```
+
+This data was analyzed using the following platform and application:
+```{r showRVersionInformation}
+R.Version()
+```
+
+#### Data Loading
+The data in this exercise is downloaded from cloudfront.net in bz2 compressed file format. Documentation on the data set is detailed in [Storm Data Preparation] (https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
+
+```{r readRemoteData, cache=TRUE}
+remoteFile <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+localeFile <- "/Users/ccurley/github/RepData_Assignment2/repdata_data_StormData.csv.bz2"
+
+download.file(remoteFile, localeFile, method = "curl")
+
+data <-read.csv(bzfile(localeFile), stringsAsFactors = FALSE)
+```
+
+#### Key Data 
+The download operation returns a data frame (data) of 902,297 observations of 37 variables. For data (re)validation, at the time of knitting, the summaries of INJURIES, FATALITIES, and PROPDMG are provided.
+
+```{r showValidationSummary}
+summary(data$INJURIES)
+summary(data$FATALITIES)
+summary(data$PROPDMG)
+```
+
+### Processinng Code
+Some processing on the code from *raw data* to *analytic data* is desirable to answer the research questions.
+
+1. Not all of the variables included in the raw data set are required to answer the question. Our data processing strategy is to remove these data from *raw data* set, placing the output into an *analysis subset*
+1. The health impact is a combination of "INJURIES" and "FATALITIES", so these are combined into a new field called "HARMFUL"
+1. There are 985 distinct values for the variable EVTYPE (which can be determed with the command "summarize(group_by(data, EVTYPE), n()", provided the dplyr package has been installed). To calculate the health and cost impact of weather events, our data process strategy is to consolidate the event types in the *analysis subset*
+1. The observations of the economic impact of weather events in the PROPDMG and CROPDMG variables have been rounded to three significant digits and coded by a symbol representing the magnatude of the observation. Our data processing strategy is to perform an operation taht will convert these data duples into absolute values in the *analysis subset*
+
+#### Variable Consolidation
+We reduce the *raw data* variables from 37 to 8, selecting BGN_DATE, EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP into an analytical data frame named "adata." ENTYPE Aggregation and Absolute Value Transformation will be perfomred on the "adata" data frame. The "BNG DATE" column is converted from chr to date.
+
+```{r subSetData}
+library(dplyr)
+
+adata <- select(data, BGN_DATE, EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+adata$BGN_DATE <- as.Date(adata$BGN_DATE, "%m/%d/%Y")
+```
+
+This gives us a data frame with the same 902297 observations with 8 variables, without altering the values of any observations.
+
+#### Harmfulness Combination
+
+```{r combineInjFat}
+library(dplyr)
+adata <- mutate(adata, HARMFUL=INJURIES+FATALITIES)
+```
+
+#### EVTYPE Aggregation
+For the EVTPYE Aggregation, we use the weather categories applied by the NOAA National Weather Service Office of Climate, Water, and Weather Services categories from http://www.nws.noaa.gov/om/hazstats.shtml:
+
+1. Flood
+1. Lightening
+1. Tornado
+1. Hurricane
+1. Heat
+1. Cold
+1. Winter
+1. Wind
+1. Rip Currents
+
+We pattern match to generalize ENTYPE observations to conform to hazardous statistics reported by the NOAA National Weather Service Office of Climate, Water, and Weather Services categories.
+
+```{r evtypeAgg, cache=TRUE}
+adata$EVTYPE <- gsub(pattern=".*FLOO.*|.*TSUN.*|.*SURGE.*|DAM FAILURE", 
+                     replacement="FLOOD", adata$EVTYPE, ignore.case = TRUE)
+adata$EVTYPE <- gsub(pattern=".*LIGHT.*", 
+                     replacement="LIGHTENING", adata$EVTYPE, ignore.case = TRUE)
+adata$EVTYPE <- gsub(pattern=".*TORN.*|.*FUNNEL.*", 
+                     replacement="TORNADO", adata$EVTYPE, ignore.case = TRUE)
+adata$EVTYPE <- gsub(pattern=".*HURRI.*", 
+                     replacement="HURRICANE", adata$EVTYPE, ignore.case = TRUE)
+adata$EVTYPE <- gsub(pattern=".*HEAT.*|.*HIGH TEMP.*|.*HOT.*|.*RECORD HIGH.*", 
+                     replacement="HEAT", adata$EVTYPE, ignore.case = TRUE)
+adata$EVTYPE <- gsub(pattern=".*COLD.*|.*RECORD LOW.*", 
+                     replacement="COLD", adata$EVTYPE, ignore.case = TRUE)
+adata$EVTYPE <- gsub(pattern=".*HAIL.*|.*FREEZ.*|.*ICE.*|.*SNOW.*|.*WINTER.*|.*BLIZZARD.*|.*ICY.*
+                     |.*HYPOTHERMIA.*", replacement="WINTER", adata$EVTYPE,
+                     ignore.case = TRUE)
+adata$EVTYPE <- gsub(pattern=".*WIND.*|.*GUST.*|.*THUNDER.*|.*STORM.*|.*TYPH.*|.*MICROBURST.*
+                     |TSTM", replacement="WIND", adata$EVTYPE, ignore.case = TRUE)
+adata$EVTYPE <- gsub(pattern=".*RIP.*|.*SURF.*", 
+                     replacement="RIP CURRENTS", adata$EVTYPE, ignore.case = TRUE)
+```
+
+We then filter out the extranenous observations, seprating the weather conditions outside the hazardous considitions reported by the NOAA National Weather Service Office of Climate, Water, and Weather Services.
+
+```{r filterData}
+adata <- filter(adata, EVTYPE == "FLOOD"|
+               EVTYPE == "LIGHTENING"|
+               EVTYPE == "TORNADO"|
+               EVTYPE == "HURRICANE"|
+               EVTYPE == "HEAT"|
+               EVTYPE == "COLD"|
+               EVTYPE == "WINTER"|
+               EVTYPE == "WIND"|
+               EVTYPE == "RIP CURRENTS")
+
+```
+
+Filtering removes approximately 3.5% of the data from the analysis data set.
+
+```{r showFilterDiff}
+nrow(adata) / nrow(data)
+```
+
+#### Absolute Value Tranformation
+Crop and Property damage is a duple of CROPDMG and CROPDMGEXP and a duple of PROPDMG and PROPDMGEXP. To analyze the property and crop damange.
+
+#### Sorting the crop exponent data
+
+```{r procCrop}
+# unique(adata$CROPDMGEXP)
+# [1] ""  "M" "K" "m" "B" "?" "0" "k" "2"
+
+# Sorting the property exponent data
+adata$CROPDMGEXP[adata$CROPDMGEXP == ""]  <- 1
+adata$CROPDMGEXP[adata$CROPDMGEXP == "M"] <- 1000000
+adata$CROPDMGEXP[adata$CROPDMGEXP == "K"] <- 1000
+adata$CROPDMGEXP[adata$CROPDMGEXP == "m"] <- 1000000
+adata$CROPDMGEXP[adata$CROPDMGEXP == "B"] <- 1000000000
+adata$CROPDMGEXP[adata$CROPDMGEXP == "0"] <- 1
+adata$CROPDMGEXP[adata$CROPDMGEXP == "k"] <- 1000
+adata$CROPDMGEXP[adata$CROPDMGEXP == "2"] <- 100
+
+adata <- mutate(adata, CROPCOST = CROPDMG * as.numeric(CROPDMGEXP))
+```
+
+#### Sorting the property exponent data
+
+```{r procProp}
+# unique(adata$PROPDMGEXP)
+# [1] "K" "M" ""  "B" "m" "+" "0" "5" "6" "?" "4" "2" "3" "h" "7" "H" "-" "1" "8"
+
+adata$PROPDMGEXP[adata$PROPDMGEXP == "K"] <- 1000
+adata$PROPDMGEXP[adata$PROPDMGEXP == "M"] <- 1000000
+adata$PROPDMGEXP[adata$PROPDMGEXP == ""]  <- 1
+adata$PROPDMGEXP[adata$PROPDMGEXP == "B"] <- 1000000000
+adata$PROPDMGEXP[adata$PROPDMGEXP == "m"] <- 1000000
+adata$PROPDMGEXP[adata$PROPDMGEXP == "0"] <- 1
+adata$PROPDMGEXP[adata$PROPDMGEXP == "5"] <- 100000
+adata$PROPDMGEXP[adata$PROPDMGEXP == "6"] <- 1000000
+adata$PROPDMGEXP[adata$PROPDMGEXP == "4"] <- 10000
+adata$PROPDMGEXP[adata$PROPDMGEXP == "2"] <- 100
+adata$PROPDMGEXP[adata$PROPDMGEXP == "3"] <- 1000
+adata$PROPDMGEXP[adata$PROPDMGEXP == "h"] <- 100
+adata$PROPDMGEXP[adata$PROPDMGEXP == "7"] <- 10000000
+adata$PROPDMGEXP[adata$PROPDMGEXP == "H"] <- 100
+adata$PROPDMGEXP[adata$PROPDMGEXP == "1"] <- 10
+adata$PROPDMGEXP[adata$PROPDMGEXP == "8"] <- 100000000
+
+adata$PROPDMGEXP[adata$PROPDMGEXP == "+"] <- 0
+adata$PROPDMGEXP[adata$PROPDMGEXP == "-"] <- 0
+adata$PROPDMGEXP[adata$PROPDMGEXP == "?"] <- 0
+
+# MUTATE
+adata <- mutate(adata, PROPCOST=PROPDMG*as.numeric(PROPDMGEXP))
+```
+
+#### Missing Values
+
+Before performing computational analysis, we check for missing values in the HARMFUL, CROPCOST, and PROPCOST fields.
+
+```{r summaryHCP}
+summary(adata[,9:11])
+
+sum(is.na(adata$CROPCOST)) / nrow(adata)
+```
+
+We see there are seven NA values in the CROPCOST data, while HARMFUL and PROPCOST are complete. Given the miniscule percentage of missing data, our strategy is to fill those observations with the mean value for CROPCOST.
+
+```{r fillNAs}
+adata$CROPCOST[is.na(adata$CROPCOST)] <- mean(adata$CROPCOST, na.rm = TRUE)
+```
+
+#### Analysis and Computation Results
+
+We then summarize the *adata* as grouped by harmfulness, economic impact to property, and economic impact to crops.
+
+```{r summarizeHARM}
+harm <- summarize(group_by(adata, EVTYPE), harm.count = n(), harm.sum = sum(HARMFUL), harm.mean = mean(HARMFUL))
+prop <- summarize(group_by(adata, EVTYPE), prop.count = n(), prop.sum = sum(PROPCOST), prop.mean = mean(PROPCOST))
+crop <- summarize(group_by(adata, EVTYPE), crop.count = n(), crop.sum = sum(CROPCOST), crop.mean = mean(CROPCOST))
+```
+
+## RESULTS
+
+### Presentation Code
+
+#### Harmfulness
+
+In terms of total harm caused by weather events, we that TORNADOS account for the most injury or death resulting from weather events. However, in terms of the mean harmfulness of weather events, HURRICANES account for the most injury or death. By event, HURRICANE is more likely to result in injury or death.
+
+```{r orderHARM}
+arrange(harm, desc(harm.sum))
+arrange(harm, desc(harm.mean))
+```
+
+```{r meanHARM, fig.cap="Figure 1, Average Impact of Weather Events on Health"}
+library(ggplot2)
+library(scales)
+
+ggplot(harm, aes(x=EVTYPE, y=harm.mean)) + geom_bar(stat = "identity", color = "white") +
+theme_bw() + theme(axis.text.x=element_text(size=10, angle=90, vjust=.8, hjust=1.01)) +
+ggtitle("Mean HARMFUL by EVTYPE 1950 - 2011")
+```
+
+Overtime, given the number and frequence of weather events, the total number of individuals injured or killed by TORADOes is the highest cause harm. However, in a given weather event, the mean harm caused by a HURRICANE is the highest. The average impact of HEAT on injury and fatality data is notable.
+
+#### Property Damage
+
+In terms of the overall cost to property from weather events, FLOOD accounts to for the most damange to property. However, in terms of the mean economic damange to property due to a specific weather event, again, HURRICANE on average produces the most damage to property.
+
+```{r orderPROP}
+arrange(prop, desc(prop.sum))
+arrange(prop, desc(prop.mean))
+```
+
+```{r meanPROP, fig.cap="Figure 2, Average Cost of Weather Events on Property"}
+ggplot(prop, aes(x=EVTYPE, y=prop.mean)) + geom_bar(stat = "identity", color = "white") +
+theme_bw() + theme(axis.text.x=element_text(size=10, angle=90, vjust=.8, hjust=1.01)) +
+ggtitle("Mean PROPCOST by EVTYPE 1950 - 2011")
+```
+
+Over time, the cumulative cost of FLOODing on property is the highest of the weather types. However, similar to injuries and fatalities resulting from weather event, the average property damage of a HURRICANE ($294,292,291.70) is significantly than average property damange from FLOOD (2,601,143.60). While floods are much more likely to occur than hurricanes (with 83,164 flood events recorded to 288 hurricane events), damange from hurricanes on average account for significantly higher property costs.
+
+
+
+#### Crop Damage
+
+In terms of the overall cost to the economy in damage to crops, again FLOOD accounts for the most damage to crops. In addition, WINTER and COLD account for significant crop damage. However, like harmfulness to health and property damage, in terms of specific events, HURRICANE is the mostly to result in the most economic damage to crops per weather event.
+
+```{r orderCROP}
+arrange(crop, desc(crop.sum))
+arrange(crop, desc(crop.mean))
+```
+
+
+```{r meanCROP, fig.cap="Figure 3, Average Cost of Weather Events on Crops"}
+ggplot(crop, aes(x=EVTYPE, y=crop.mean)) + geom_bar(stat = "identity", color = "white") +
+theme_bw() + theme(axis.text.x=element_text(size=10, angle=90, vjust=.8, hjust=1.01)) +
+ggtitle("Mean CROPCOST by EVTYPE 1950 - 2011")
+```
+
+Similar to property damage resulting from weather events, over time FLOODing accounts for the most cumlative cost, and HURRICANE having the highest average cost per weather event. HEAT and COLD, as one would expect, have a more meaningful economic impact on crop losses than property losses.
+
+### CONCLUSIONS
+Across the *raw data* set, a TORNADO that struck Texas in 1979 has the highest impact on human health -- fatality and injury. This agrees with cumulative impact of weather events on human health: TORNADO had the highest cumulative toll on health from 1950 to 2011. Outside of this single data point, data processing the *raw data* set into *analysis data* produces signficantly different results for the overall health and economic impacts of weather events.
+
+How the weather events are grouped, which groups and what means of re-assigning EVTYPE, may alter findings. The difference between HURRICANE, TORNADO and WIND, what separates a type of weather event as WINTER or WIND, etc., can alter the findings presented in this report. Review and critique of the schema for categorization and the method for re-categorization is a worthwhile investigation.
+
+Overall, a HURRICANE is a singular event that on average produces significant property and crop damage and be the cause for injury and loss of life. Similarly, FLOODing is a singular weather event that should be planned for, both in emergency response as well as in long-term fiscal planning.
+
+Over time, however, the economic impact of what we might call normal weather events -- HEAT, COLD, WIND -- account for numerous injuries and/or fatalities. Public education focused on preventing injury or fatality as well as preparation and precaution for mimizing the economic impact of these relatively frequently experiened weather conditions is good policy.
